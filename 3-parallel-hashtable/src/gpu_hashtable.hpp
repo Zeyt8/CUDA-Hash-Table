@@ -6,6 +6,12 @@
 /**
  * Class GpuHashTable to implement functions
  */
+struct HashTableItem
+{
+	uint32_t key = 0;
+	uint32_t value = 0;
+};
+
 class GpuHashTable
 {
 	public:
@@ -14,17 +20,12 @@ class GpuHashTable
 
 		bool insertBatch(int *keys, int* values, int numKeys);
 		int* getBatch(int* key, int numItems);
+		float loadFactor();
 
 		~GpuHashTable();
 
 	private:
-		unsigned int fnvHash(const char* str);
-		struct HashTablePair
-		{
-			uint32_t key;
-			uint32_t value;
-		};
-		HashTablePair **table;
+		HashTableItem *table;
 		unsigned int size;
 		unsigned int count;
 };
