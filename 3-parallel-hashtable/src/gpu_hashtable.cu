@@ -55,6 +55,9 @@ GpuHashTable::~GpuHashTable() {
 __global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int numBucketsReshape)
 {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
+	if (index >= numBucketsReshape) {
+		return;
+	}
 	if (table[index].key == 0) {
 		return;
 	}
@@ -81,6 +84,9 @@ void GpuHashTable::reshape(int numBucketsReshape) {
 __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int* values, int numKeys)
 {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
+	if (index >= numKeys) {
+		return;
+	}
 	unsigned int hash = fnvHash((char*)&keys[index]) % size;
 	while (table[hash].key != keys[index]) {
 		hash = (hash + 1) % size;
@@ -92,7 +98,7 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 }
 
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
-	if (count + numKeys > size * 0.8f) {
+	if (count + numKeys > size) {
 		reshape(size * 2);
 	}
 	insertBatchKernel<<<numKeys / 256 + 1, 256>>>(table, size, keys, values, numKeys);
@@ -107,6 +113,9 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* values)
 {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
+	if (index >= size) {
+		return;
+	}
 	int hash = keys[index] % size;
 	while (table[hash].key != keys[index]) {
 		hash = (hash + 1) % size;
