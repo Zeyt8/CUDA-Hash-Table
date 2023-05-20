@@ -8,8 +8,8 @@
  */
 struct HashTableItem
 {
-	uint32_t key = 0;
-	uint32_t value = 0;
+	int key = 0;
+	int value = 0;
 };
 
 class GpuHashTable
