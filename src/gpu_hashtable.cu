@@ -126,7 +126,11 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// check if we need to reshape
 	if (count + numKeys > size) {
-		reshape(size * 2);
+		int newSize = size;
+		while (count + numKeys > newSize) {
+			newSize *= 2;
+		}
+		reshape(newSize);
 	}
 	// move keys and values to GPU
 	int* keysDevice;
