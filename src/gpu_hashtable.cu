@@ -168,12 +168,6 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// call kernel
 	insertBatchKernel<<<numKeys / 256 + 1, 256>>>(table, size, keysDevice, valuesDevice, numKeys, added);
 	cudaDeviceSynchronize();
-	cudaError_t err;
-	if (0 != (err = cudaGetLastError()))
-    {
-        cerr << "[insertBatch] Error inserting batch" << endl;
-        cerr << cudaGetErrorString(err) << endl;
-    }
 	// update count
 	count += *added;
 	// cleanup
