@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define LOAD_FACTOR 0.8f
+#define LOAD_FACTOR 0.9f
 #define BLOCK_SIZE 256
 
 /**
