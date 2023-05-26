@@ -86,7 +86,7 @@ void GpuHashTable::reshape(int numBucketsReshape) {
 	glbGpuAllocator->_cudaMalloc((void**)&newTable, numBucketsReshape * sizeof(HashTableItem));
 	cudaMemset(newTable, 0, numBucketsReshape * sizeof(HashTableItem));
 	// call kernel
-	reshapeKernel<<<size / 256 + 1, 256>>>(newTable, table, numBucketsReshape);
+	reshapeKernel<<<(size + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(newTable, table, numBucketsReshape);
 	cudaDeviceSynchronize();
 	// update table
 	glbGpuAllocator->_cudaFree(table);
@@ -130,9 +130,9 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// check if we need to reshape
-	if (count + numKeys > size) {
+	if (count + numKeys > size * LOAD_FACTOR) {
 		int newSize = size;
-		while (count + numKeys > newSize) {
+		while (count + numKeys > newSize * LOAD_FACTOR) {
 			newSize *= 2;
 		}
 		reshape(newSize);
@@ -149,7 +149,7 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	glbGpuAllocator->_cudaMalloc((void**)&added, sizeof(int));
 	cudaMemset(added, 0, sizeof(int));
 	// call kernel
-	insertBatchKernel<<<numKeys / 256 + 1, 256>>>(table, size, keysDevice, valuesDevice, numKeys, added);
+	insertBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, valuesDevice, numKeys, added);
 	cudaDeviceSynchronize();
 	// update count
 	int* addedHost;
@@ -178,7 +178,7 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 	}
 	// calculate hash
 	int key = keys[index];
-	unsigned int hash = fnvHash((char*)key) % size;
+	unsigned int hash = fnvHash((char*)&key) % size;
 	unsigned int initialHash = hash;
 	// find place to insert
 	while (true) {
@@ -210,7 +210,7 @@ int* GpuHashTable::getBatch(int* keys, int numKeys) {
 	int* values;
 	glbGpuAllocator->_cudaMalloc((void**)&values, numKeys * sizeof(int));
 	// call kernel
-	getBatchKernel<<<numKeys / 256 + 1, 256>>>(table, size, keysDevice, values);
+	getBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, values);
 	cudaDeviceSynchronize();
 	// alloc values on host
 	int* valuesHost = (int*)malloc(numKeys * sizeof(int));

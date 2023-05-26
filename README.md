@@ -14,7 +14,7 @@ The hash I used is fnv-1a inspired by this: https://gist.github.com/hwei/1950649
 
 ### **Insert**
 
-If presumably all the keys are not present in the table and after adding them the count exceeds the size of the table, I have to resize the table.
+If presumably all the keys are not present in the table and after adding them the count exceeds the size of the table, I have to resize the table. I use a load factor to leave some empty room in the table.
 
 I start a kernel. Each instance has an index. I calculate the hash of the key at that index. I do linear probing to find a spot. That means checking if the current hash is empty or if it has the same key. If it is empty or has the same key, I insert the new key-value pair. Otherwise I increase the hash by 1.
 
@@ -47,5 +47,7 @@ The hash table is only stored on the GPU using malloc. I do not do any operation
 ## Performance
 
 It is expected for it to be much faster than the CPU. Surprinzingly using atomicCSA doesn't seem to slow it down that much. I think that happens because the operation does something hardware wise. If I were to use a classic mutex, it would be much slower, as most of the inserting and getting would be under that mutex so most of it wouldn't actually be multithreaded.
+
+Using the load_factor for reshaping seems to improve the performance imensely. With a load_factor of 1, the tests take up to 10 times longer. I think that happens because it reduces the number of collisions.
 
 Because I am inserting a lot of data at a time, it is possible that reshaping that isn't needed often happens. I don't think this is fixable, as reshaping needs to happen before inserting the new data. Checking if it is needed would mean basically inserting the data twice, once to check if it is needed and once to actually insert it. That would be a lot slower and I think the tradeoff is acceptable.

@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#define LOAD_FACTOR 0.8f
+#define BLOCK_SIZE 256
+
 /**
  * Class GpuHashTable to implement functions
  */
