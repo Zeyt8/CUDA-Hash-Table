@@ -146,18 +146,14 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	cudaMemcpy(valuesDevice, values, numKeys * sizeof(int), cudaMemcpyHostToDevice);
 	// keep track of how many keys were actually added
 	int* added;
-	glbGpuAllocator->_cudaMalloc((void**)&added, sizeof(int));
-	cudaMemset(added, 0, sizeof(int));
+	glbGpuAllocator->_cudaMallocManaged((void**)&added, sizeof(int));
+	*added = 0;
 	// call kernel
 	insertBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, valuesDevice, numKeys, added);
 	cudaDeviceSynchronize();
 	// update count
-	int* addedHost;
-	addedHost = (int*)malloc(sizeof(int));
-	cudaMemcpy(addedHost, added, sizeof(int), cudaMemcpyDeviceToHost);
 	count += *added;
 	// cleanup
-	free(addedHost);
 	glbGpuAllocator->_cudaFree(added);
 	glbGpuAllocator->_cudaFree(keysDevice);
 	glbGpuAllocator->_cudaFree(valuesDevice);
@@ -219,7 +215,7 @@ int* GpuHashTable::getBatch(int* keys, int numKeys) {
 	// cleanup
 	glbGpuAllocator->_cudaFree(values);
 	glbGpuAllocator->_cudaFree(keysDevice);
-	return values;
+	return valuesHost;
 }
 
 float GpuHashTable::loadFactor() {
