@@ -133,7 +133,7 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	if (count + numKeys > size * LOAD_FACTOR) {
 		int newSize = size;
 		while (count + numKeys > newSize * LOAD_FACTOR) {
-			newSize *= 2;
+			newSize *= 1.2f;
 		}
 		reshape(newSize);
 	}
@@ -160,6 +160,10 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	glbGpuAllocator->_cudaFree(added);
 	glbGpuAllocator->_cudaFree(keysDevice);
 	glbGpuAllocator->_cudaFree(valuesDevice);
+	// if the number of keys added wasn't that much, we need to reshape again to reduce load factor
+	if (count < size / 2) {
+		reshape(size / 2);
+	}
 	return true;
 }
 
