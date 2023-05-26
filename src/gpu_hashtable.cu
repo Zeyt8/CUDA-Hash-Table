@@ -20,14 +20,15 @@ cudaFree -> glbGpuAllocator->_cudaFree
 
 __device__ static unsigned int fnvHash(const char* str)
 {
-    const size_t length = sizeof(uint32_t);
     unsigned int hash = 2166136261u;
-    for (size_t i = 0; i < length; ++i)
-    {
-        hash ^= *str++;
-        hash *= 16777619u;
-    }
-	hash &= 0x7FFFFFFF;
+	hash ^= *(str + 0);
+    hash *= 16777619u;
+	hash ^= *(str + 1);
+    hash *= 16777619u;
+	hash ^= *(str + 2);
+    hash *= 16777619u;
+	hash ^= *(str + 3);
+    hash *= 16777619u;
     return hash;
 }
 
@@ -37,17 +38,8 @@ __device__ static unsigned int fnvHash(const char* str)
  * Example on using wrapper allocators _cudaMalloc and _cudaFree
  */
 GpuHashTable::GpuHashTable(int size) {
-	// alloc table with malloc
-	HashTableItem* temp = (HashTableItem*)malloc(size * sizeof(HashTableItem));
-	// initialize values
-	for (int i = 0; i < size; i++) {
-		temp[i].key = 0;
-		temp[i].value = 0;
-	}
 	glbGpuAllocator->_cudaMalloc((void**)&table, size * sizeof(HashTableItem));
-	// move temp to gpu
-	cudaMemcpy(table, temp, size * sizeof(HashTableItem), cudaMemcpyHostToDevice);
-	free(temp);
+	cudaMemset(table, 0, size * sizeof(HashTableItem));
 	GpuHashTable::size = size;
 	count = 0;
 }
@@ -89,19 +81,10 @@ __global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int
 }
 
 void GpuHashTable::reshape(int numBucketsReshape) {
-	// alloc temp with malloc
-	HashTableItem* temp = (HashTableItem*)malloc(numBucketsReshape * sizeof(HashTableItem));
-	// initialize values
-	for (int i = 0; i < numBucketsReshape; i++) {
-		temp[i].key = 0;
-		temp[i].value = 0;
-	}
 	// alloc new table
 	HashTableItem* newTable;
 	glbGpuAllocator->_cudaMalloc((void**)&newTable, numBucketsReshape * sizeof(HashTableItem));
-	// move temp to gpu
-	cudaMemcpy(newTable, temp, numBucketsReshape * sizeof(HashTableItem), cudaMemcpyHostToDevice);
-	free(temp);
+	cudaMemset(newTable, 0, numBucketsReshape * sizeof(HashTableItem));
 	// call kernel
 	reshapeKernel<<<size / 256 + 1, 256>>>(newTable, table, numBucketsReshape);
 	cudaDeviceSynchronize();
@@ -163,14 +146,18 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	cudaMemcpy(valuesDevice, values, numKeys * sizeof(int), cudaMemcpyHostToDevice);
 	// keep track of how many keys were actually added
 	int* added;
-	glbGpuAllocator->_cudaMallocManaged((void**)&added, sizeof(int));
-	*added = 0;
+	glbGpuAllocator->_cudaMalloc((void**)&added, sizeof(int));
+	cudaMemset(added, 0, sizeof(int));
 	// call kernel
 	insertBatchKernel<<<numKeys / 256 + 1, 256>>>(table, size, keysDevice, valuesDevice, numKeys, added);
 	cudaDeviceSynchronize();
 	// update count
+	int* addedHost;
+	addedHost = (int*)malloc(sizeof(int));
+	cudaMemcpy(addedHost, added, sizeof(int), cudaMemcpyDeviceToHost);
 	count += *added;
 	// cleanup
+	free(addedHost);
 	glbGpuAllocator->_cudaFree(added);
 	glbGpuAllocator->_cudaFree(keysDevice);
 	glbGpuAllocator->_cudaFree(valuesDevice);
@@ -191,7 +178,8 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 	}
 	// calculate hash
 	int key = keys[index];
-	int hash = fnvHash((char*)key) % size;
+	unsigned int hash = fnvHash((char*)key) % size;
+	unsigned int initialHash = hash;
 	// find place to insert
 	while (true) {
 		if (table[hash].key == key) {
@@ -205,6 +193,11 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 			return;
 		}
 		hash = (hash + 1) % size;
+		if (hash == initialHash) {
+			// we have looped through the entire table
+			values[index] = 0;
+			return;
+		}
 	}
 }
 

@@ -10,6 +10,8 @@ For each function the idea is to call a kernel that will process one of the elem
 
 For every function I have to move the array arguments to the GPU.
 
+The hash I used is fnv-1a inspired by this: https://gist.github.com/hwei/1950649d523afd03285c
+
 ### **Insert**
 
 If presumably all the keys are not present in the table and after adding them the count exceeds the size of the table, I have to resize the table.
