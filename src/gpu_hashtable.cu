@@ -18,7 +18,7 @@ cudaMallocManaged -> glbGpuAllocator->_cudaMallocManaged
 cudaFree -> glbGpuAllocator->_cudaFree
 */
 
-__device__ static unsigned int fnvHash(const char* str)
+__device__ static int fnvHash(const char* str)
 {
     unsigned int hash = 2166136261u;
 	hash ^= *(str + 0);
@@ -29,7 +29,8 @@ __device__ static unsigned int fnvHash(const char* str)
     hash *= 16777619u;
 	hash ^= *(str + 3);
     hash *= 16777619u;
-    return hash;
+	hash &= 0x7FFFFFFF;
+    return (int)hash;
 }
 
 /**
@@ -40,7 +41,7 @@ __device__ static unsigned int fnvHash(const char* str)
 GpuHashTable::GpuHashTable(int size) {
 	glbGpuAllocator->_cudaMalloc((void**)&table, size * sizeof(HashTableItem));
 	cudaMemset(table, 0, size * sizeof(HashTableItem));
-	GpuHashTable::size = size;
+	capacity = size;
 	count = 0;
 }
 
@@ -68,7 +69,7 @@ __global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int
 		return;
 	}
 	// recalculate hash
-	unsigned int hash = fnvHash((char*)&table[index].key) % numBucketsReshape;
+	int hash = fnvHash((char*)&table[index].key) % numBucketsReshape;
 	// find place to insert
 	while (true) {
 		int prev = atomicCAS(&newTable[hash].key, 0, table[index].key);
@@ -86,12 +87,12 @@ void GpuHashTable::reshape(int numBucketsReshape) {
 	glbGpuAllocator->_cudaMalloc((void**)&newTable, numBucketsReshape * sizeof(HashTableItem));
 	cudaMemset(newTable, 0, numBucketsReshape * sizeof(HashTableItem));
 	// call kernel
-	reshapeKernel<<<(size + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(newTable, table, size, numBucketsReshape);
+	reshapeKernel<<<(capacity + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(newTable, table, capacity, numBucketsReshape);
 	cudaDeviceSynchronize();
 	// update table
 	glbGpuAllocator->_cudaFree(table);
 	table = newTable;
-	size = numBucketsReshape;
+	capacity = numBucketsReshape;
 }
 
 /**
@@ -109,7 +110,7 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 	// calculate hash
 	int key = keys[index];
 	int value = values[index];
-	unsigned int hash = fnvHash((char*)&key) % size;
+	int hash = fnvHash((char*)&key) % size;
 	// find place to insert
 	while (true) {
 		int prev = atomicCAS(&table[hash].key, 0, key);
@@ -130,10 +131,10 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// check if we need to reshape
-	if (count + numKeys > size * LOAD_FACTOR) {
-		int newSize = size;
+	if (count + numKeys > capacity * LOAD_FACTOR) {
+		int newSize = capacity;
 		while (count + numKeys > newSize * LOAD_FACTOR) {
-			newSize *= 1.5f;
+			newSize *= 2;
 		}
 		reshape(newSize);
 	}
@@ -149,7 +150,7 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	glbGpuAllocator->_cudaMalloc((void**)&added, sizeof(int));
 	cudaMemset(added, 0, sizeof(int));
 	// call kernel
-	insertBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, valuesDevice, numKeys, added);
+	insertBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, capacity, keysDevice, valuesDevice, numKeys, added);
 	cudaDeviceSynchronize();
 	// update count
 	int* addedHost = (int*)malloc(sizeof(int));
@@ -177,7 +178,8 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 	}
 	// calculate hash
 	int key = keys[index];
-	unsigned int hash = fnvHash((char*)&key) % size;
+	int hash = fnvHash((char*)&key) % size;
+	int start = hash;
 	// find place to insert
 	while (true) {
 		if (table[hash].key == key) {
@@ -187,10 +189,15 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 		}
 		else if (table[hash].key == 0) {
 			// entry does not exist
-			values[index] = INT_MIN;
+			values[index] = 0;
 			return;
 		}
 		hash = (hash + 1) % size;
+		if (hash == start) {
+			// we have looped through the entire table
+			values[index] = 0;
+			return;
+		}
 	}
 }
 
@@ -203,7 +210,7 @@ int* GpuHashTable::getBatch(int* keys, int numKeys) {
 	int* values;
 	glbGpuAllocator->_cudaMalloc((void**)&values, numKeys * sizeof(int));
 	// call kernel
-	getBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, values, numKeys);
+	getBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, capacity, keysDevice, values, numKeys);
 	cudaDeviceSynchronize();
 	// alloc values on host
 	int* valuesHost = (int*)malloc(numKeys * sizeof(int));
@@ -216,5 +223,5 @@ int* GpuHashTable::getBatch(int* keys, int numKeys) {
 }
 
 float GpuHashTable::loadFactor() {
-	return (float)count / size;
+	return (float)count / capacity;
 }

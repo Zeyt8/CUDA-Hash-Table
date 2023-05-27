@@ -14,7 +14,7 @@ The hash I used is fnv-1a inspired by this: https://gist.github.com/hwei/1950649
 
 ### **Insert**
 
-If presumably all the keys are not present in the table and after adding them the count exceeds the size of the table, I have to resize the table. I use a load factor to leave some empty room in the table.
+If presumably all the keys are not present in the table and after adding them the count exceeds the capacity of the table, I have to resize the table. I use a load factor to leave some empty room in the table.
 
 I start a kernel. Each instance has an index. I calculate the hash of the key at that index. I do linear probing to find a spot. That means checking if the current hash is empty or if it has the same key. If it is empty or has the same key, I insert the new key-value pair. Otherwise I increase the hash by 1.
 
@@ -26,7 +26,7 @@ In the end I update the new count.
 
 ### **Get**
 
-I create a new array on the gpu.. After the computation is done, I copy the array back to the host.
+I create a new array on the gpu. After the computation is done, I copy the array back to the host.
 
 I start a kernel. Each instance has an index. It computes the hash of the key at that index and checks for existing values also using linear probing.
 
