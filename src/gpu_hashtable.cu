@@ -71,7 +71,7 @@ __global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int
 	unsigned int hash = fnvHash((char*)&table[index].key) % numBucketsReshape;
 	// find place to insert
 	while (true) {
-		uint32_t prev = atomicCAS(&newTable[hash].key, 0, table[index].key);
+		int prev = atomicCAS(&newTable[hash].key, 0, table[index].key);
 		if (prev == 0) {
 			newTable[hash].value = table[index].value;
 			return;
@@ -112,7 +112,7 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 	unsigned int hash = fnvHash((char*)&key) % size;
 	// find place to insert
 	while (true) {
-		uint32_t prev = atomicCAS(&table[hash].key, 0, key);
+		int prev = atomicCAS(&table[hash].key, 0, key);
 		if (prev == 0) {
 			// entry did not exist
 			table[hash].value = value;
@@ -130,10 +130,10 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// check if we need to reshape
-	if (count + numKeys > size) {
+	if (count + numKeys > size * LOAD_FACTOR) {
 		int newSize = size;
-		while (count + numKeys > newSize) {
-			newSize *= 1.1f;
+		while (count + numKeys > newSize * LOAD_FACTOR) {
+			newSize *= 1.5f;
 		}
 		reshape(newSize);
 	}
@@ -167,12 +167,12 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
  * Function getBatch
  * Gets a batch of key:value, using GPU
  */
-__global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* values)
+__global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* values, int numKeys)
 {
 	// calculate index
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
 	// if index is out of bounds, return
-	if (index >= size) {
+	if (index >= numKeys) {
 		return;
 	}
 	// calculate hash
@@ -187,7 +187,7 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 		}
 		else if (table[hash].key == 0) {
 			// entry does not exist
-			values[index] = 0;
+			values[index] = INT_MIN;
 			return;
 		}
 		hash = (hash + 1) % size;
@@ -203,7 +203,7 @@ int* GpuHashTable::getBatch(int* keys, int numKeys) {
 	int* values;
 	glbGpuAllocator->_cudaMalloc((void**)&values, numKeys * sizeof(int));
 	// call kernel
-	getBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, values);
+	getBatchKernel<<<(numKeys + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(table, size, keysDevice, values, numKeys);
 	cudaDeviceSynchronize();
 	// alloc values on host
 	int* valuesHost = (int*)malloc(numKeys * sizeof(int));

@@ -29,8 +29,8 @@ class GpuHashTable
 
 	private:
 		HashTableItem *table;
-		unsigned int size;	// capacity
-		unsigned int count;	// number of elements
+		int size;	// capacity
+		int count;	// number of elements
 };
 
 #endif
