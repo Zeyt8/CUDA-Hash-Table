@@ -55,12 +55,12 @@ GpuHashTable::~GpuHashTable() {
  * Function reshape
  * Performs resize of the hashtable based on load factor
  */
-__global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int numBucketsReshape)
+__global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int size, int numBucketsReshape)
 {
 	// calculate index
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
 	// if index is out of bounds, return
-	if (index >= numBucketsReshape) {
+	if (index >= size) {
 		return;
 	}
 	// if previous entry is empty, return
@@ -72,7 +72,7 @@ __global__ void reshapeKernel(HashTableItem* newTable, HashTableItem* table, int
 	// find place to insert
 	while (true) {
 		uint32_t prev = atomicCAS(&newTable[hash].key, 0, table[index].key);
-		if (prev == 0 || prev == table[index].key) {
+		if (prev == 0) {
 			newTable[hash].value = table[index].value;
 			return;
 		}
@@ -86,7 +86,7 @@ void GpuHashTable::reshape(int numBucketsReshape) {
 	glbGpuAllocator->_cudaMalloc((void**)&newTable, numBucketsReshape * sizeof(HashTableItem));
 	cudaMemset(newTable, 0, numBucketsReshape * sizeof(HashTableItem));
 	// call kernel
-	reshapeKernel<<<(size + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(newTable, table, numBucketsReshape);
+	reshapeKernel<<<(size + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(newTable, table, size, numBucketsReshape);
 	cudaDeviceSynchronize();
 	// update table
 	glbGpuAllocator->_cudaFree(table);
@@ -130,10 +130,10 @@ __global__ void insertBatchKernel(HashTableItem* table, int size, int* keys, int
 
 bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	// check if we need to reshape
-	if (count + numKeys > size * LOAD_FACTOR) {
+	if (count + numKeys > size) {
 		int newSize = size;
-		while (count + numKeys > newSize * LOAD_FACTOR) {
-			newSize *= 1.2f;
+		while (count + numKeys > newSize) {
+			newSize *= 1.1f;
 		}
 		reshape(newSize);
 	}
@@ -160,10 +160,6 @@ bool GpuHashTable::insertBatch(int *keys, int* values, int numKeys) {
 	glbGpuAllocator->_cudaFree(added);
 	glbGpuAllocator->_cudaFree(keysDevice);
 	glbGpuAllocator->_cudaFree(valuesDevice);
-	// if the number of keys added wasn't that much, we need to reshape again to reduce load factor
-	if (count < size / 2) {
-		reshape(size / 2);
-	}
 	return true;
 }
 
@@ -182,7 +178,6 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 	// calculate hash
 	int key = keys[index];
 	unsigned int hash = fnvHash((char*)&key) % size;
-	unsigned int initialHash = hash;
 	// find place to insert
 	while (true) {
 		if (table[hash].key == key) {
@@ -196,11 +191,6 @@ __global__ void getBatchKernel(HashTableItem* table, int size, int* keys, int* v
 			return;
 		}
 		hash = (hash + 1) % size;
-		if (hash == initialHash) {
-			// we have looped through the entire table
-			values[index] = 0;
-			return;
-		}
 	}
 }
 
