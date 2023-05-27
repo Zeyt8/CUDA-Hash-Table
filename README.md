@@ -46,7 +46,7 @@ The hash table is only stored on the GPU using malloc. I do not do any operation
 
 ## Performance
 
-It is expected for it to be much faster than the CPU. Surprinzingly using atomicCSA doesn't seem to slow it down that much. I think that happens because the operation does something hardware wise. If I were to use a classic mutex, it would be much slower, as most of the inserting and getting would be under that mutex so most of it wouldn't actually be multithreaded.
+It is expected for it to be much faster than the CPU. Surprinzingly using atomicCSA doesn't seem to slow it down that much. I think that happens because the operation does something hardware wise. If I were to use a classic mutex, it would be much slower, as most of the inserting and getting would be under that mutex so most of it wouldn't actually be parallel.
 
 Using the load_factor for reshaping seems to improve the performance imensely. With a load_factor of 1, the tests take up to 10 times longer. I think that happens because it reduces the number of collisions.
 
